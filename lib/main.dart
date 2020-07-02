@@ -1,95 +1,115 @@
 import 'package:flutter/material.dart';
 import 'package:http/http.dart' as http;
+import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'dart:convert';
 import 'dart:async';
+import 'dart:io';
+import './status.dart';
 
-main() => runApp(MyApp());
+main() => runApp(Home());
 
-class MyApp extends StatefulWidget {
+class Home extends StatelessWidget {
   @override
-  _MyAppState createState() => _MyAppState();
-}
-
-class Data {
-  String name;
-  bool keyIn;
-  bool turnOn;
-  String location;
-  String speed;
-  String oil;
-  String tire;
-  String inTemp;
-  String engineTemp;
-  Data();
-  Data.fromJson(Map<String, dynamic> json) {
-    this.name = json['userInfo'];
-    this.keyIn = json['Key'];
-    this.turnOn = json['On'];
-    this.location = json['location'];
-    this.speed = json['speed'];
-    this.oil = json['oilVolumne'];
-    this.tire = json['tirePressure'];
-    this.inTemp = json['indoorTemp'];
-    this.engineTemp = json['engineTemp'];
+  Widget build(BuildContext context) {
+    return MaterialApp(home: Page());
   }
 }
 
-class _MyAppState extends State<MyApp> {
-  var mydata = Data();
-  Timer timer;
+class Page extends StatefulWidget {
+  @override
+  _PageState createState() => _PageState();
+}
+
+class _PageState extends State<Page> {
+  Data carStatus = Data();
   String userID = '';
   bool auth = false;
   final textController = TextEditingController();
+  bool loading = false;
 
   @override
   void initState() {
     super.initState();
-    timer = Timer.periodic(Duration(seconds: 2),
-        (Timer t) => print('ID: ' + userID + ' AU:' + auth.toString()));
+    // 定時執行
+    Timer.periodic(Duration(seconds: 5), (timer) {
+      print('ID:' + userID + ' AU:' + auth.toString());
+    });
+    Timer.periodic(Duration(seconds: 2), (timer) {
+      if (auth) _fetch();
+    });
   }
 
   Future _register() async {
+    // 顯示載入圖示
+    setState(() {
+      loading = true;
+    });
     userID = textController.text;
-    var url = 'http://misclicked.dynv6.net:3000/pair?id=' + userID;
-    final response = await http.get(url);
-    if (response.statusCode == 200) {
-      print(response.body);
+    var url = 'http://misclicked01.ubddns.org:3000/pair?id=' + userID;
+    print(url);
+    try {
+      final response = await http.get(url).timeout(Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        print(response.body);
+        setState(() {
+          auth =
+              json.decode(response.body)['status'] == 'success' ? true : false;
+          // 提示並清空車輛狀態
+          if (!auth) {
+            textController.text = '錯誤';
+            carStatus = Data();
+          }
+        });
+      } else
+        throw Exception('Failed to register');
+      // 顯示正常畫面
       setState(() {
-        auth = json.decode(response.body)['status'] == 'success' ? true : false;
+        loading = false;
       });
-    } else
-      throw Exception('Failed to register');
+    } on TimeoutException catch (_) {
+      print('Timeout');
+      exit(1);
+    }
   }
 
   Future _fetch() async {
-    var url = 'http://misclicked.dynv6.net:3000/get?id=' + userID;
-    final response = await http.get(url);
-    if (response.statusCode == 200) {
-      print(response.body);
-      setState(() {
-        mydata = Data.fromJson(json.decode(response.body));
-      });
-    } else
-      throw Exception('Failed to fetch data');
+    var url = 'http://misclicked01.ubddns.org:3000/get?id=' + userID;
+    print(url);
+    try {
+      final response = await http.get(url).timeout(Duration(seconds: 5));
+      if (response.statusCode == 200) {
+        print(response.body);
+        setState(() {
+          carStatus = Data.fromJson(json.decode(response.body));
+        });
+      } else
+        throw Exception('Failed to fetch data');
+    } on TimeoutException catch (_) {
+      print('Timeout');
+      exit(1);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      child: MaterialApp(
-        home: Scaffold(
-          resizeToAvoidBottomPadding: false, // 避免 bottom overflow
-          appBar: AppBar(
-            title: Text('老司機'),
-          ),
-          body: Container(
-            margin: EdgeInsets.all(10),
-            width: double.infinity,
-            child: Column(
+    return Scaffold(
+      resizeToAvoidBottomPadding: false, // 避免 bottom overflow
+      backgroundColor: Colors.white,
+      appBar: AppBar(
+        title: Text('老司機'),
+      ),
+      body: loading
+          ? Center( // 載入圖示
+              child: CircularProgressIndicator(),
+            )
+          : StaggeredGridView.count( // 格狀 layout
+              primary: false,
+              crossAxisCount: 4,
+              crossAxisSpacing: 5.0,
+              mainAxisSpacing: 10.0,
+              padding: EdgeInsets.symmetric(horizontal: 20),
               children: [
                 Container(
-                  width: 300,
-                  margin: EdgeInsets.only(bottom: 50),
                   child: Column(
                     children: [
                       TextField(
@@ -106,10 +126,10 @@ class _MyAppState extends State<MyApp> {
                           color: Colors.blue,
                           textColor: Colors.white),
                       auth
-                          ? Text('已授權',
+                          ? Text('已登入',
                               style:
                                   TextStyle(fontSize: 16, color: Colors.green))
-                          : Text('未授權',
+                          : Text('未登入',
                               style:
                                   TextStyle(fontSize: 16, color: Colors.red)),
                     ],
@@ -119,37 +139,38 @@ class _MyAppState extends State<MyApp> {
                   '車輛狀態',
                   style: TextStyle(
                       fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.blue),
+                      color: Colors.blue,
+                      fontWeight: FontWeight.bold),
                 ),
-                SizedBox(height: 10),
-                Text('用戶: ' + mydata.name.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('鑰匙: ' + mydata.keyIn.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('發動: ' + mydata.turnOn.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('地點: ' + mydata.location.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('車速: ' + mydata.speed.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('油量: ' + mydata.oil.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('胎壓: ' + mydata.tire.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('車內溫度: ' + mydata.inTemp.toString(),
-                    style: TextStyle(fontSize: 16)),
-                Text('引擎溫度: ' + mydata.engineTemp.toString(),
-                    style: TextStyle(fontSize: 16)),
+                Status(true, Colors.lightBlueAccent, '用戶', carStatus.name),
+                Status(false, Colors.lightBlue, '鑰匙', carStatus.keyIn),
+                Status(false, Colors.lightBlue, '發動', carStatus.turnOn),
+                Status(true, Colors.lightBlue, '車速', carStatus.speed),
+                Status(true, Colors.blue, '地點', carStatus.location),
+                Status(false, Colors.blueAccent, '油量', carStatus.oil),
+                Status(false, Colors.blueAccent, '胎壓', carStatus.tire),
+                Status(false, Colors.blueAccent, '車內溫度', carStatus.inTemp),
+                Status(false, Colors.blueAccent, '引擎溫度', carStatus.engineTemp),
+              ],
+              // 設定格子大小
+              staggeredTiles: [
+                StaggeredTile.extent(4, 200), // 註冊
+                StaggeredTile.extent(2, 50), // 車輛狀態
+                StaggeredTile.extent(2, 50), // 用戶
+                StaggeredTile.count(1, 1), // 鑰匙
+                StaggeredTile.count(1, 1), // 發動
+                StaggeredTile.count(2, 1), // 車速
+                StaggeredTile.count(4, 1), // 地點
+                StaggeredTile.count(1, 1), // 油量
+                StaggeredTile.count(1, 1), // 胎壓
+                StaggeredTile.count(1, 1), // 車內溫度
+                StaggeredTile.count(1, 1), // 引擎溫度
               ],
             ),
-          ),
-          floatingActionButton: FloatingActionButton(
-            onPressed: _fetch,
-            child: Icon(Icons.sync),
-          ),
-        ),
-      ),
+      // floatingActionButton: FloatingActionButton(
+      //   onPressed: _fetch,
+      //   child: Icon(Icons.sync),
+      // ),
     );
   }
 }
